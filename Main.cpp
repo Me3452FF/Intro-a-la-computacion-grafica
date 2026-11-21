@@ -6,6 +6,9 @@
 #include "shaderClass.h" // Clase que permite cargar y utilizar los shaders
 #include "VAO.h" // Maneja el VAO, que guarda como se interpretan los vertices
 #include "VBO.h" // Maneja el VBO, donde se almacenan los vertices
+#include "ImGui/imgui.h"// Biblioteca principal de Dear ImGui para crear botones, ventanas y controles
+#include "ImGui/imgui_impl_glfw.h"// Permite que Dear ImGui funcione con GLFW y reciba eventos del mouse y teclado
+#include "ImGui/imgui_impl_opengl3.h"// Permite dibujar la interfaz de Dear ImGui utilizando OpenGL
 
 // Tamaño inicial de la ventana
 const unsigned int width = 800;
@@ -355,6 +358,22 @@ int main()
     // Define inicialmente el area completa de dibujo
     glViewport(0, 0, framebufferWidth, framebufferHeight);
 
+    // Comprueba que la version de Dear ImGui sea correcta
+    IMGUI_CHECKVERSION();
+
+    // Crea el contexto necesario para utilizar Dear ImGui
+    ImGui::CreateContext();
+
+    // Establece un estilo oscuro para la interfaz
+    ImGui::StyleColorsDark();
+
+    // Conecta Dear ImGui con nuestra ventana de GLFW
+    // true permite que ImGui reciba eventos del mouse y teclado
+    ImGui_ImplGlfw_InitForOpenGL(window, true);
+
+    // Prepara Dear ImGui para dibujar utilizando OpenGL 3.3
+    ImGui_ImplOpenGL3_Init("#version 330");
+
     // ==================== SHADERS ====================
 
     // Carga el Vertex Shader y Fragment Shader
@@ -424,6 +443,15 @@ int main()
         // Procesa eventos de teclado, mouse y ventana
         glfwPollEvents();
 
+        // Prepara un nuevo fotograma de la interfaz de ImGui
+        ImGui_ImplOpenGL3_NewFrame();
+
+        // Actualiza la informacion del mouse, teclado y ventana
+        ImGui_ImplGlfw_NewFrame();
+
+        // Inicia un nuevo fotograma para crear los controles de nuestro Paint
+        ImGui::NewFrame();
+
         // Borra visualmente el frame anterior
         // Las figuras no desaparecen porque su estado sigue guardado
         // en celdasSeleccionadas
@@ -486,6 +514,45 @@ int main()
         teclaCAnterior = teclaC;
         teclaRAnterior = teclaR;
 
+        // PANEL DE HERRAMIENTAS DE PAINT
+
+// Crea una ventana de ImGui con el titulo "Herramientas"
+        ImGui::Begin("Herramientas");
+
+        // Muestra un texto que indica la herramienta seleccionada
+        ImGui::Text("Modo actual: %s",
+            modoActual == LINEA ? "Linea" : "Circulo");
+
+        // Crea un boton para seleccionar el modo linea
+        if (ImGui::Button("Linea"))
+        {
+            // Activa el algoritmo de Bresenham para lineas
+            modoActual = LINEA;
+
+            // Cancela cualquier figura que estuviera a medio dibujar
+            primerPuntoSeleccionado = false;
+        }
+
+        // Crea un boton para seleccionar el modo circulo
+        if (ImGui::Button("Circulo"))
+        {
+            // Activa el algoritmo de Bresenham para circulos
+            modoActual = CIRCULO;
+
+            // Cancela cualquier figura que estuviera a medio dibujar
+            primerPuntoSeleccionado = false;
+        }
+
+        // Crea un boton para borrar todas las figuras de la grilla
+        if (ImGui::Button("Limpiar"))
+        {
+            // Utiliza la funcion que ya existe en nuestro programa
+            limpiarGrilla();
+        }
+
+        // Finaliza la construccion de la ventana de herramientas
+        ImGui::End();
+
         //  MOUSE 
 
         // Comprueba si el boton izquierdo esta presionado
@@ -495,9 +562,11 @@ int main()
                 GLFW_MOUSE_BUTTON_LEFT
             ) == GLFW_PRESS;
 
-        // Solo entra cuando pasa de no presionado a presionado
-        // Esto evita registrar muchos clics por mantener el boton
-        if (clickActual && !clickAnterior)
+       // Solo entra cuando pasa de no presionado a presionado
+       // Esto evita registrar muchos clics por mantener el boton
+       // Detecta un clic nuevo del mouse y comprueba que no sea sobre ImGui
+       // Asi, al presionar un boton de la interfaz, no dibujamos en la grilla
+        if (clickActual && !clickAnterior && !ImGui::GetIO().WantCaptureMouse)
         {
             // mouseX y mouseY guardaran la posicion del cursor
             double mouseX, mouseY;
@@ -519,6 +588,7 @@ int main()
             // Evita dividir entre cero
             if (ventanaWidth > 0 && ventanaHeight > 0)
             {
+
                 // mouseX/ventanaWidth produce un valor entre 0 y 1
                 // Multiplicarlo por COLUMNAS indica la columna seleccionada
                 int columna = (int)std::floor(
@@ -704,12 +774,30 @@ int main()
 
         // OpenGL dibuja primero en un buffer oculto
         // Esta instruccion intercambia buffers y muestra el frame terminado
+
+        // Finaliza la construccion de la interfaz de este fotograma
+        ImGui::Render();
+
+        // Dibuja en pantalla las ventanas y botones de Dear ImGui
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+
         glfwSwapBuffers(window);
     }
 
     // CERRAR PROGRAMA 
 
     // Libera la configuracion de vertices
+
+    // Cierra la conexion entre Dear ImGui y OpenGL
+    ImGui_ImplOpenGL3_Shutdown();
+
+    // Cierra la conexion entre Dear ImGui y GLFW
+    ImGui_ImplGlfw_Shutdown();
+
+    // Libera la memoria utilizada por la interfaz de Dear ImGui
+    ImGui::DestroyContext();
+
     VAO1.Delete();
 
     // Libera la memoria donde estaban almacenados los vertices
