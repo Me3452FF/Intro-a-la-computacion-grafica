@@ -9,6 +9,7 @@
 #include "ImGui/imgui.h"// Biblioteca principal de Dear ImGui para crear botones, ventanas y controles
 #include "ImGui/imgui_impl_glfw.h"// Permite que Dear ImGui funcione con GLFW y reciba eventos del mouse y teclado
 #include "ImGui/imgui_impl_opengl3.h"// Permite dibujar la interfaz de Dear ImGui utilizando OpenGL
+#include <algorithm>// Permite utilizar funciones para obtener valores minimos y maximos
 
 // Tamaño inicial de la ventana
 const unsigned int width = 800;
@@ -16,15 +17,274 @@ const unsigned int height = 800;
 
 // Cantidad de filas y columnas de la grilla
 // 150x150 crea 22500 celdas que funcionan como pixeles
-const int FILAS = 150;
-const int COLUMNAS = 150;
+const int FILAS = 200;
+const int COLUMNAS = 200;
 
 // La grilla es 2D, pero sus estados se guardan en un vector de una dimension
+ 
+// Guarda las celdas que pertenecen a una figura
+struct Figura
+{
+    std::vector<int> celdas;
+
+    // Indica si la figura tiene relleno
+    bool tieneRelleno = false;
+};
 // false significa celda gris y true significa celda roja
+
 std::vector<bool> celdasSeleccionadas(FILAS* COLUMNAS, false);
 
-// Enum permite tener dos modos sin utilizar numeros como 0 y 1
-enum ModoDibujo { LINEA, CIRCULO };
+ // Guarda todas las figuras dibujadas
+std::vector<Figura> figuras;
+
+// Declara la funcion que actualiza las figuras
+void actualizarFiguras();
+
+// Guarda cual figura esta seleccionada
+// -1 significa que no hay ninguna seleccionada
+int figuraSeleccionada = -1;
+
+// Guarda temporalmente las celdas de la figura actual
+Figura figuraActual;
+
+// Indica si estamos registrando una figura
+bool registrandoFigura = false;
+
+// Prepara el registro de una figura nuevaahora si ya
+void iniciarFigura()
+{
+    // Borra las celdas guardadas anteriormente
+    figuraActual.celdas.clear();
+
+    // Activa el registro de celdas
+    registrandoFigura = true;
+}
+
+// Guarda la figura cuando terminamos de dibujarla
+void finalizarFigura()
+{
+    // Detiene el registro de celdas
+    registrandoFigura = false;
+
+    // Comprueba que la figura tenga celdas
+    if (!figuraActual.celdas.empty())
+    {
+        // Guarda la figura en nuestra lista
+        figuras.push_back(figuraActual);
+    }
+}
+
+
+// Busca una figura que contenga la celda seleccionada
+void seleccionarFigura(int fila, int columna)
+{
+    // Calcula la posicion de la celda
+    int indice = fila * COLUMNAS + columna;
+
+    // Inicialmente no hay ninguna figura seleccionada
+    figuraSeleccionada = -1;
+
+    // Recorre las figuras desde la ultima dibujada
+    for (int i = (int)figuras.size() - 1; i >= 0; i--)
+    {
+        // Revisa las celdas de cada figura
+        for (int celda : figuras[i].celdas)
+        {
+            // Comprueba si hicimos clic sobre la figura
+            if (celda == indice)
+            {
+                // Guarda la figura seleccionada
+                figuraSeleccionada = i;
+                return;
+            }
+        }
+    }
+}
+
+
+// Busca a que figura pertenece una celda
+int buscarFigura(int fila, int columna)
+{
+    // Calcula el indice de la celda
+    int indice = fila * COLUMNAS + columna;
+
+    // Recorre las figuras guardadas
+    for (int i = (int)figuras.size() - 1; i >= 0; i--)
+    {
+        // Revisa las celdas de cada figura
+        for (int celda : figuras[i].celdas)
+        {
+            if (celda == indice)
+            {
+                return i;
+            }
+        }
+    }
+
+    // No encontro ninguna figura
+    return -1;
+}
+
+
+// Une las celdas del relleno con una figura existente
+void unirRelleno(int numeroFigura, const std::vector<int>& relleno)
+{
+    // Comprueba que la figura exista
+    if (numeroFigura < 0 || numeroFigura >= (int)figuras.size())
+        return;
+
+    // Recorre las celdas del relleno
+    for (int celda : relleno)
+    {
+        // Evita guardar celdas repetidas
+        if (std::find(
+            figuras[numeroFigura].celdas.begin(),
+            figuras[numeroFigura].celdas.end(),
+            celda
+        ) == figuras[numeroFigura].celdas.end())
+        {
+            figuras[numeroFigura].celdas.push_back(celda);
+        }
+    }
+
+    // Indica que la figura tiene relleno
+    figuras[numeroFigura].tieneRelleno = true;
+}
+
+
+// Busca una figura que rodee el relleno
+int encontrarContorno(const std::vector<int>& relleno)
+{
+    // Recorre las celdas rellenadas
+    for (int celda : relleno)
+    {
+        int fila = celda / COLUMNAS;
+        int columna = celda % COLUMNAS;
+
+        // Revisa las cuatro celdas vecinas
+        int vecinos[4][2] = {
+            {fila - 1, columna},
+            {fila + 1, columna},
+            {fila, columna - 1},
+            {fila, columna + 1}
+        };
+
+        for (int i = 0; i < 4; i++)
+        {
+            int f = vecinos[i][0];
+            int c = vecinos[i][1];
+
+            // Comprueba los limites de la cuadricula
+            if (f >= 0 && f < FILAS && c >= 0 && c < COLUMNAS)
+            {
+                int figura = buscarFigura(f, c);
+
+                if (figura != -1)
+                {
+                    return figura;
+                }
+            }
+        }
+    }
+
+    return -1;
+}
+
+
+// Rota 90 grados la figura seleccionada
+void rotarFigura()
+{
+    // Comprueba que exista una figura seleccionada
+    if (figuraSeleccionada == -1)
+        return;
+
+    // Obtiene las celdas de la figura
+    std::vector<int>& celdas = figuras[figuraSeleccionada].celdas;
+
+    // Busca los limites de la figura
+    int minX = COLUMNAS;
+    int maxX = 0;
+    int minY = FILAS;
+    int maxY = 0;
+
+    for (int indice : celdas)
+    {
+        int x = indice % COLUMNAS;
+        int y = indice / COLUMNAS;
+
+        minX = std::min(minX, x);
+        maxX = std::max(maxX, x);
+        minY = std::min(minY, y);
+        maxY = std::max(maxY, y);
+    }
+
+    // Calcula el centro de la figura
+    float centroX = (minX + maxX) / 2.0f;
+    float centroY = (minY + maxY) / 2.0f;
+
+    // Guarda las nuevas posiciones
+    std::vector<int> nuevasCeldas;
+
+    for (int indice : celdas)
+    {
+        int x = indice % COLUMNAS;
+        int y = indice / COLUMNAS;
+
+        // Rota 90 grados utilizando coordenadas enteras
+       // Calcula el giro de 90 grados sin utilizar decimales
+        int nuevoX = (minX + maxX + minY + maxY) / 2 - y;
+        int nuevoY = (minY + maxY - minX - maxX) / 2 + x;
+
+        // Comprueba que la celda quede dentro de la grilla
+        if (nuevoX >= 0 && nuevoX < COLUMNAS &&
+            nuevoY >= 0 && nuevoY < FILAS)
+        {
+            nuevasCeldas.push_back(nuevoY * COLUMNAS + nuevoX);
+        }
+    }
+
+
+
+    // Actualiza las celdas de la figura
+    celdas = nuevasCeldas;
+
+    // Actualiza la cuadricula para mostrar la rotacion
+    actualizarFiguras();
+}
+
+
+// Actualiza la cuadricula con las figuras guardadas
+void actualizarFiguras()
+{
+    // Limpia las celdas de la cuadricula
+    for (int i = 0; i < FILAS * COLUMNAS; i++)
+    {
+        celdasSeleccionadas[i] = false;
+    }
+
+    // Recorre todas las figuras guardadas
+    for (const Figura& figura : figuras)
+    {
+        // Vuelve a pintar las celdas de cada figura
+        for (int indice : figura.celdas)
+        {
+            celdasSeleccionadas[indice] = true;
+        }
+    }
+}
+
+// Define las herramientas de dibujo disponibles en nuestro Paint
+// Herramientas disponibles para dibujar en la cuadricula
+// Herramientas disponibles para dibujar en la cuadricula
+enum ModoDibujo
+{
+    LINEA,
+    CIRCULO,
+    RECTANGULO,
+    TRIANGULO,
+    RELLENO,
+    ROTAR
+};
 
 // El programa empieza por defecto en modo linea
 ModoDibujo modoActual = LINEA;
@@ -39,6 +299,17 @@ bool primerPuntoSeleccionado = false;
 // Guardan la posicion del primer clic
 int puntoInicialFila = 0;
 int puntoInicialColumna = 0;
+
+// Cuenta cuantos vertices del triangulo hemos seleccionado
+int clicsTriangulo = 0;
+
+// Guarda la posicion del primer vertice
+int trianguloX1 = 0;
+int trianguloY1 = 0;
+
+// Guarda la posicion del segundo vertice
+int trianguloX2 = 0;
+int trianguloY2 = 0;
 
 // Se ejecuta cuando cambia el tamaño de la ventana
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
@@ -59,13 +330,104 @@ void pintarCelda(int fila, int columna)
         int indice = fila * COLUMNAS + columna;
 
         // true indica que esta celda debe mostrarse roja
+
+        // Guarda la celda si estamos registrando una figura
+        if (registrandoFigura)
+        {
+            figuraActual.celdas.push_back(indice);
+        }
+
         celdasSeleccionadas[indice] = true;
     }
 }
 
-// Devuelve todas las celdas a su estado inicial
+
+// Rellena las celdas vacias conectadas desde el punto seleccionado
+void rellenarZona(int fila, int columna)
+{
+    // Comprueba que el punto este dentro de la cuadricula
+    if (fila < 0 || fila >= FILAS ||
+        columna < 0 || columna >= COLUMNAS)
+    {
+        return;
+    }
+
+    // Guarda las celdas pendientes de pintar
+    std::vector<int> pendientes;
+
+    // Agrega la celda seleccionada
+    pendientes.push_back(fila * COLUMNAS + columna);
+
+    // Repite hasta terminar de revisar las celdas
+    while (!pendientes.empty())
+    {
+        // Obtiene una celda pendiente
+        int posicion = pendientes.back();
+        pendientes.pop_back();
+
+        // Comprueba si ya esta pintada
+        if (celdasSeleccionadas[posicion])
+        {
+            continue;
+        }
+
+        // Pinta la celda actual
+        celdasSeleccionadas[posicion] = true;
+
+        // Guarda la celda dentro del relleno actual
+        if (registrandoFigura)
+        {
+            figuraActual.celdas.push_back(posicion);
+        }
+
+        // Calcula su fila y columna
+        int f = posicion / COLUMNAS;
+        int c = posicion % COLUMNAS;
+
+        // Revisa la celda superior
+        if (f > 0 && !celdasSeleccionadas[(f - 1) * COLUMNAS + c])
+        {
+            pendientes.push_back((f - 1) * COLUMNAS + c);
+        }
+
+        // Revisa la celda inferior
+        if (f < FILAS - 1 && !celdasSeleccionadas[(f + 1) * COLUMNAS + c])
+        {
+            pendientes.push_back((f + 1) * COLUMNAS + c);
+        }
+
+        // Revisa la celda izquierda
+        if (c > 0 && !celdasSeleccionadas[f * COLUMNAS + c - 1])
+        {
+            pendientes.push_back(f * COLUMNAS + c - 1);
+        }
+
+        // Revisa la celda derecha
+        if (c < COLUMNAS - 1 && !celdasSeleccionadas[f * COLUMNAS + c + 1])
+        {
+            pendientes.push_back(f * COLUMNAS + c + 1);
+        }
+    }
+}
+
+
 void limpiarGrilla()
 {
+    // Borra las figuras guardadas
+    figuras.clear();
+
+    // Quita cualquier figura seleccionada
+    figuraSeleccionada = -1;
+
+    // Cancela el registro de una figura
+    registrandoFigura = false;
+
+    // Borra las celdas temporales
+    figuraActual.celdas.clear();
+
+    // Reinicia los clics del triangulo
+    clicsTriangulo = 0;
+
     // Recorre las 22500 celdas
     for (int i = 0; i < FILAS * COLUMNAS; i++)
         celdasSeleccionadas[i] = false;
@@ -146,6 +508,46 @@ void dibujarLineaBresenham(int columnaInicial, int filaInicial,
             y0 += sy;
         }
     }
+}
+
+// Dibuja un rectangulo utilizando cuatro lineas de Bresenham
+void dibujarRectanguloBresenham(int columnaInicial, int filaInicial,
+    int columnaFinal, int filaFinal)
+{
+    // Calcula las cuatro esquinas del rectangulo
+    int izquierda = std::min(columnaInicial, columnaFinal);
+    int derecha = std::max(columnaInicial, columnaFinal);
+    int arriba = std::min(filaInicial, filaFinal);
+    int abajo = std::max(filaInicial, filaFinal);
+
+    // Dibuja el lado superior
+    dibujarLineaBresenham(izquierda, arriba, derecha, arriba);
+
+    // Dibuja el lado derecho
+    dibujarLineaBresenham(derecha, arriba, derecha, abajo);
+
+    // Dibuja el lado inferior
+    dibujarLineaBresenham(derecha, abajo, izquierda, abajo);
+
+    // Dibuja el lado izquierdo
+    dibujarLineaBresenham(izquierda, abajo, izquierda, arriba);
+}
+
+// Dibuja un triangulo utilizando tres lineas de Bresenham
+void dibujarTrianguloBresenham(
+    int x1, int y1,
+    int x2, int y2,
+    int x3, int y3)
+{
+    // Dibuja el primer lado, desde el vertice 1 hasta el vertice 2
+    dibujarLineaBresenham(x1, y1, x2, y2);
+
+    // Dibuja el segundo lado, desde el vertice 2 hasta el vertice 3
+    dibujarLineaBresenham(x2, y2, x3, y3);
+
+    // Dibuja el tercer lado, desde el vertice 3 hasta el vertice 1
+    // Esto permite cerrar el triangulo
+    dibujarLineaBresenham(x3, y3, x1, y1);
 }
 
 // CIRCULO 
@@ -242,9 +644,8 @@ std::vector<GLfloat> crearGrilla()
     // Lo mismo pero para la altura
     float tamanoY = 2.0f / (float)FILAS;
 
-    // Deja una pequeña separacion visual entre las celdas
+    // Separacion original entre las celdas
     float margen = 0.003f;
-
     // Recorre cada posicion de la grilla
     for (int fila = 0; fila < FILAS; fila++)
     {
@@ -264,6 +665,8 @@ std::vector<GLfloat> crearGrilla()
             float y1 = y2 - tamanoY;
 
             // Reduce ligeramente la figura para crear separacion
+            // Utiliza todo el espacio de cada celda
+            // Deja una pequeña separacion entre las celdas
             float dibujoX1 = x1 + margen;
             float dibujoX2 = x2 - margen;
             float dibujoY1 = y1 + margen;
@@ -517,11 +920,33 @@ int main()
         // PANEL DE HERRAMIENTAS DE PAINT
 
 // Crea una ventana de ImGui con el titulo "Herramientas"
-        ImGui::Begin("Herramientas");
+        ImGui::Begin("Modos");
 
         // Muestra un texto que indica la herramienta seleccionada
-        ImGui::Text("Modo actual: %s",
-            modoActual == LINEA ? "Linea" : "Circulo");
+        // Guarda el nombre de la herramienta seleccionada
+        const char* nombreModo = "Linea";
+
+        // Comprueba si estamos utilizando la herramienta circulo
+        if (modoActual == CIRCULO)
+        {
+            nombreModo = "Circulo";
+        }
+
+        // Comprueba si estamos utilizando la herramienta rectangulo
+        else if (modoActual == RECTANGULO)
+        {
+            nombreModo = "Rectangulo";
+        }
+
+        // Comprueba si la herramienta seleccionada es triangulo
+        else if (modoActual == TRIANGULO)
+        {
+            // Actualiza el nombre que aparece en el panel
+            nombreModo = "Triangulo";
+        }
+
+        // Muestra en el panel el nombre de la herramienta activa
+        ImGui::Text("Modo actual: %s", nombreModo);
 
         // Crea un boton para seleccionar el modo linea
         if (ImGui::Button("Linea"))
@@ -541,6 +966,69 @@ int main()
 
             // Cancela cualquier figura que estuviera a medio dibujar
             primerPuntoSeleccionado = false;
+        }
+
+        // Crea un boton para seleccionar la herramienta rectangulo
+        if (ImGui::Button("Rectangulo"))
+        {
+            // Cambia el modo de dibujo a rectangulo
+            modoActual = RECTANGULO;
+
+            // Cancela cualquier figura que estuviera a medio dibujar
+            primerPuntoSeleccionado = false;
+
+            // Muestra en la consola la herramienta seleccionada
+            std::cout << "\nMODO RECTANGULO" << std::endl;
+            std::cout << "Click 1 = Primera esquina | Click 2 = Esquina opuesta\n";
+        }
+
+        // Crea un boton para seleccionar la herramienta triangulo
+        if (ImGui::Button("Triangulo"))
+        {
+            // Cambia el modo de dibujo a triangulo
+            modoActual = TRIANGULO;
+
+            // Cancela cualquier figura que estuviera a medio dibujar
+            primerPuntoSeleccionado = false;
+
+            // Muestra en la consola que seleccionamos esta herramienta
+            std::cout << "\nMODO TRIANGULO" << std::endl;
+
+            // Explica cuantos clics necesitaremos para dibujar
+            std::cout << "Selecciona tres vertices con el mouse\n";
+        }
+
+
+        // Crea un boton para activar la rotacion
+        if (ImGui::Button("Rotar"))
+        {
+            // Activa la herramienta de rotacion
+            modoActual = ROTAR;
+
+            // Cancela cualquier dibujo incompleto
+            primerPuntoSeleccionado = false;
+
+            // Reinicia los clics del triangulo
+            clicsTriangulo = 0;
+
+            // Muestra un mensaje en la consola
+            std::cout << "MODO ROTAR" << std::endl;
+        }
+
+
+
+        // Crea el boton para activar la herramienta de relleno
+        if (ImGui::Button("Rellenar"))
+        {
+            // Selecciona el modo de relleno
+            modoActual = RELLENO;
+
+            // Reinicia la seleccion de puntos anteriores
+            primerPuntoSeleccionado = false;
+
+            // Muestra en consola la herramienta seleccionada
+            std::cout << "\nMODO RELLENO" << std::endl;
+            std::cout << "Haz clic dentro de una figura cerrada\n";
         }
 
         // Crea un boton para borrar todas las figuras de la grilla
@@ -607,7 +1095,111 @@ int main()
                     //  PRIMER CLIC
 
                     // Si aun no tenemos un primer punto, lo guardamos
-                    if (!primerPuntoSeleccionado)
+
+                    // Comprueba si estamos dibujando un triangulo
+
+                    // Comprueba si seleccionamos la herramienta de relleno
+
+                    // Comprueba si queremos seleccionar una figura
+
+                    if (modoActual == ROTAR)
+                    {
+                        // Busca la figura sobre la que hicimos clic
+                        seleccionarFigura(fila, columna);
+
+                        // Comprueba que encontramos una figura
+                        if (figuraSeleccionada != -1)
+                        {
+                            // Gira solamente esa figura 90 grados
+                            rotarFigura();
+
+                            // Muestra un mensaje en la consola
+                            std::cout << "Figura rotada: "
+                                << figuraSeleccionada << std::endl;
+                        }
+                        else
+                        {
+                            // Avisa si no seleccionamos ninguna figura
+                            std::cout << "No se encontro ninguna figura"
+                                << std::endl;
+                        }
+                    }
+
+
+                    else if (modoActual == RELLENO)
+                    {
+                        // Comienza a registrar el relleno
+                        iniciarFigura();
+
+                        // Rellena la zona seleccionada
+                        rellenarZona(fila, columna);
+
+                        // Busca la figura que rodea el relleno
+                        int contorno = encontrarContorno(figuraActual.celdas);
+
+                        if (contorno != -1)
+                        {
+                            // Une el relleno con el contorno
+                            unirRelleno(contorno, figuraActual.celdas);
+
+                            // Termina el registro sin crear otra figura
+                            registrandoFigura = false;
+                        }
+                        else
+                        {
+                            // Guarda el relleno como figura independiente
+                            finalizarFigura();
+                        }
+                    }
+
+
+                    else if (modoActual == TRIANGULO)
+                    {
+                        // PRIMER CLIC: guarda el primer vertice
+                        if (clicsTriangulo == 0)
+                        {
+                            // Comienza a registrar el triangulo
+                            iniciarFigura();
+                            trianguloX1 = columna;
+                            trianguloY1 = fila;
+
+                            // Pinta el primer vertice
+                            pintarCelda(fila, columna);
+
+                            clicsTriangulo = 1;
+                        }
+
+                        // SEGUNDO CLIC: guarda el segundo vertice
+                        else if (clicsTriangulo == 1)
+                        {
+                            trianguloX2 = columna;
+                            trianguloY2 = fila;
+
+                            // Pinta el segundo vertice
+                            pintarCelda(fila, columna);
+
+                            clicsTriangulo = 2;
+                        }
+
+                        // TERCER CLIC: dibuja el triangulo completo
+                        else
+                        {
+                            // Une los tres vertices usando Bresenham
+                            dibujarTrianguloBresenham(
+                                trianguloX1, trianguloY1,
+                                trianguloX2, trianguloY2,
+                                columna, fila
+                            );
+
+                            // Guarda el triangulo como figura independiente
+                            finalizarFigura();
+
+                            // Reinicia el contador para dibujar otro triangulo
+                            clicsTriangulo = 0;
+                        }
+                    }
+
+                    else if (!primerPuntoSeleccionado)
                     {
                         puntoInicialFila = fila;
                         puntoInicialColumna = columna;
@@ -618,13 +1210,8 @@ int main()
                         // En modo linea el primer punto es el inicio
                         if (modoActual == LINEA)
                         {
-                            // Lo pintamos inmediatamente para mostrarlo
+                            // Marca el primer punto de la linea
                             pintarCelda(fila, columna);
-
-                            std::cout << "\nINICIO -> Fila: "
-                                << fila
-                                << " | Columna: "
-                                << columna << std::endl;
                         }
 
                         // En modo circulo el primer punto es el centro
@@ -657,6 +1244,10 @@ int main()
                                 << std::endl;
 
                             // Envia P1 y P2 al algoritmo de Bresenham
+
+                            // Comienza a guardar las celdas de esta linea
+                            iniciarFigura();
+
                             dibujarLineaBresenham(
                                 puntoInicialColumna,
                                 puntoInicialFila,
@@ -664,13 +1255,17 @@ int main()
                                 puntoFinalFila
                             );
 
+                            // Guarda la linea como una figura independiente
+                            finalizarFigura();
+
                             std::cout << "LINEA TERMINADA\n"
                                 << std::endl;
                         }
 
-                        // DIBUJAR CIRCULO 
+                        // DIBUJAR CIRCULO
 
-                        else
+                        // Comprueba que la herramienta seleccionada sea circulo
+                        else if (modoActual == CIRCULO)
                         {
                             // Calcula cuanto se separa el segundo clic
                             // del centro horizontalmente
@@ -697,21 +1292,52 @@ int main()
                                 << radio << std::endl;
 
                             // Un radio debe ser mayor que cero
+
                             if (radio > 0)
                             {
+                                // Comienza a registrar el circulo
+                                iniciarFigura();
+
                                 // Envia centro y radio a Bresenham
                                 dibujarCirculoBresenham(
                                     puntoInicialColumna,
                                     puntoInicialFila,
                                     radio
                                 );
+
+                                // Guarda el circulo como figura independiente
+                                finalizarFigura();
                             }
+
                             else
                             {
                                 std::cout
                                     << "ERROR: Radio invalido."
                                     << std::endl;
                             }
+                        }
+
+                        // DIBUJAR RECTANGULO
+                       // Comprueba si seleccionamos la herramienta rectangulo
+                        else if (modoActual == RECTANGULO)
+                        {
+                            // Dibuja los cuatro lados utilizando Bresenham
+                            // El primer clic indica una esquina
+                            // El segundo clic indica la esquina opuesta
+                            // Comienza a registrar el rectangulo
+                            iniciarFigura();
+                            dibujarRectanguloBresenham(
+                                puntoInicialColumna,
+                                puntoInicialFila,
+                                puntoFinalColumna,
+                                puntoFinalFila
+                            );
+
+                            // Guarda el rectangulo como figura independiente
+                            finalizarFigura();
+
+                            // Confirma en la consola que terminamos el dibujo
+                            std::cout << "RECTANGULO TERMINADO\n" << std::endl;
                         }
 
                         // La figura ya termino
@@ -732,6 +1358,10 @@ int main()
         VAO1.Bind();
 
         // Recorre todas las celdas para dibujarlas
+
+        // Dibuja los triangulos completamente rellenos
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
         for (int fila = 0; fila < FILAS; fila++)
         {
             for (int columna = 0;
