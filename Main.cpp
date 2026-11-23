@@ -252,6 +252,52 @@ void rotarFigura()
     actualizarFiguras();
 }
 
+// Traslada la figura seleccionada en los ejes X e Y
+void trasladarFigura(int dx, int dy)
+{
+    // Comprueba que exista una figura seleccionada
+    if (figuraSeleccionada == -1)
+        return;
+
+    // Evita actualizar si no hay movimiento
+    if (dx == 0 && dy == 0)
+        return;
+
+    // Obtiene las celdas de la figura
+    std::vector<int>& celdas = figuras[figuraSeleccionada].celdas;
+
+    // Comprueba que toda la figura permanezca dentro de la grilla
+    for (int indice : celdas)
+    {
+        int columna = indice % COLUMNAS;
+        int fila = indice / COLUMNAS;
+
+        int nuevaColumna = columna + dx;
+        int nuevaFila = fila + dy;
+
+        if (nuevaColumna < 0 || nuevaColumna >= COLUMNAS ||
+            nuevaFila < 0 || nuevaFila >= FILAS)
+        {
+            return;
+        }
+    }
+
+    // Desplaza todas las celdas de la figura
+    for (int& indice : celdas)
+    {
+        int columna = indice % COLUMNAS;
+        int fila = indice / COLUMNAS;
+
+        columna += dx;
+        fila += dy;
+
+        indice = fila * COLUMNAS + columna;
+    }
+
+    // Actualiza la grilla para mostrar la nueva posicion
+    actualizarFiguras();
+}
+
 
 // Actualiza la cuadricula con las figuras guardadas
 void actualizarFiguras()
@@ -276,6 +322,7 @@ void actualizarFiguras()
 // Define las herramientas de dibujo disponibles en nuestro Paint
 // Herramientas disponibles para dibujar en la cuadricula
 // Herramientas disponibles para dibujar en la cuadricula
+// Define los modos disponibles del programa
 enum ModoDibujo
 {
     LINEA,
@@ -283,15 +330,22 @@ enum ModoDibujo
     RECTANGULO,
     TRIANGULO,
     RELLENO,
-    ROTAR
+    ROTAR,
+    TRASLADAR
 };
-
 // El programa empieza por defecto en modo linea
 ModoDibujo modoActual = LINEA;
 
 // Guarda el estado anterior del mouse para detectar un solo clic
 // y no muchos clics mientras el boton permanezca presionado
 bool clickAnterior = false;
+
+// Indica si estamos arrastrando una figura
+bool arrastrandoFigura = false;
+
+// Guarda la posicion anterior del mouse en la grilla
+int filaAnteriorArrastre = 0;
+int columnaAnteriorArrastre = 0;
 
 // Indica si ya se realizo el primer clic de la figura
 bool primerPuntoSeleccionado = false;
@@ -1015,6 +1069,23 @@ int main()
             std::cout << "MODO ROTAR" << std::endl;
         }
 
+        // Boton para activar la traslacion de figuras
+        if (ImGui::Button("Trasladar"))
+        {
+            // Activa el modo de traslacion
+            modoActual = TRASLADAR;
+
+            // Cancela cualquier dibujo incompleto
+            primerPuntoSeleccionado = false;
+            clicsTriangulo = 0;
+
+            // Quita la seleccion anterior
+            figuraSeleccionada = -1;
+
+            // Muestra el modo seleccionado
+            std::cout << "MODO TRASLADAR" << std::endl;
+        }
+
 
 
         // Crea el boton para activar la herramienta de relleno
@@ -1102,7 +1173,25 @@ int main()
 
                     // Comprueba si queremos seleccionar una figura
 
-                    if (modoActual == ROTAR)
+                    // Selecciona la figura que vamos a trasladar
+                    if (modoActual == TRASLADAR)
+                    {
+                        // Busca la figura donde hicimos clic
+                        seleccionarFigura(fila, columna);
+
+                        // Comprueba que encontramos una figura
+                        if (figuraSeleccionada != -1)
+                        {
+                            // Activa el arrastre
+                            arrastrandoFigura = true;
+
+                            // Guarda la posicion inicial del mouse
+                            filaAnteriorArrastre = fila;
+                            columnaAnteriorArrastre = columna;
+                        }
+                    }
+
+                    else if (modoActual == ROTAR)
                     {
                         // Busca la figura sobre la que hicimos clic
                         seleccionarFigura(fila, columna);
@@ -1351,6 +1440,54 @@ int main()
         // Guarda el estado actual para detectar
         // un nuevo clic en el siguiente frame
         clickAnterior = clickActual;
+
+        // Controla el movimiento de las figuras con el mouse
+        if (modoActual == TRASLADAR)
+        {
+            // Detiene el arrastre cuando soltamos el mouse
+            if (!clickActual)
+            {
+                arrastrandoFigura = false;
+            }
+            // Mueve la figura mientras mantenemos presionado el mouse
+            else if (arrastrandoFigura)
+            {
+                double mouseX, mouseY;
+                int ventanaWidth, ventanaHeight;
+
+                // Obtiene la posicion actual del mouse
+                glfwGetCursorPos(window, &mouseX, &mouseY);
+                glfwGetWindowSize(window, &ventanaWidth, &ventanaHeight);
+
+                if (ventanaWidth > 0 && ventanaHeight > 0)
+                {
+                    // Convierte la posicion del mouse a celdas
+                    int columna = (int)std::floor(
+                        (mouseX / ventanaWidth) * COLUMNAS
+                    );
+
+                    int fila = (int)std::floor(
+                        (mouseY / ventanaHeight) * FILAS
+                    );
+
+                    // Comprueba que el mouse este dentro de la grilla
+                    if (fila >= 0 && fila < FILAS &&
+                        columna >= 0 && columna < COLUMNAS)
+                    {
+                        // Calcula el desplazamiento en X e Y
+                        int dx = columna - columnaAnteriorArrastre;
+                        int dy = fila - filaAnteriorArrastre;
+
+                        // Mueve la figura
+                        trasladarFigura(dx, dy);
+
+                        // Guarda la nueva posicion del mouse
+                        columnaAnteriorArrastre = columna;
+                        filaAnteriorArrastre = fila;
+                    }
+                }
+            }
+        }
 
         //  RENDERIZADO 
 
